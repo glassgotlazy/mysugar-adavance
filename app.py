@@ -1,30 +1,16 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import re
 
-# Define required columns
-REQUIRED_COLS = {
-    "datetime": ["datetime", "date", "time", "timestamp", "date/time", "date time"],
-    "blood sugar measurement (mg/dl)": [
-        "blood sugar measurement (mg/dl)", "blood sugar", "glucose",
-        "blood sugar measurement", "sugar level", "bs", "bg"
-    ],
-    "insulin": ["insulin", "insulin dose", "insulin units", "insulin taken"]
-}
+# List of possible insulin-related columns
+INSULIN_COLS = [
+    "insulin injection units (pen)",
+    "basal injection units",
+    "insulin injection units (pump)",
+    "insulin (meal)",
+    "insulin (correction)"
+]
 
-def normalize_columns(df):
-    col_map = {}
-    for standard, aliases in REQUIRED_COLS.items():
-        for col in df.columns:
-            clean_col = re.sub(r"[^a-z0-9]", "", col.strip().lower())
-            for alias in aliases:
-                if clean_col == re.sub(r"[^a-z0-9]", "", alias.lower()):
-                    col_map[col] = standard
-                    break
-    return df.rename(columns=col_map)
-
-# Streamlit UI
 st.set_page_config(page_title="MySugar Advance", layout="wide")
 
 st.title("📊 MySugar Advance - Blood Sugar & Insulin Tracker")
@@ -34,13 +20,26 @@ uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
-        df = normalize_columns(df)
 
-        # Validate columns
-        if not all(col in df.columns for col in REQUIRED_COLS.keys()):
-            st.error(f"❌ CSV must contain columns (any case/format accepted): {list(REQUIRED_COLS.keys())}")
-            st.write("📌 Detected columns in your file:", list(df.columns))
+        # Normalize column names (lowercase for matching)
+        df.columns = [col.strip().lower() for col in df.columns]
+
+        # Fix duplicate datetime column issue (take first one)
+        if df.columns.duplicated().any():
+            df = df.loc[:, ~df.columns.duplicated()]
+
+        # Ensure datetime column
+        if "datetime" not in df.columns:
+            st.error("❌ No 'datetime' column found.")
+        elif "blood sugar measurement (mg/dl)" not in df.columns:
+            st.error("❌ No 'blood sugar measurement (mg/dl)' column found.")
         else:
+            # Combine all insulin columns into one
+            df["insulin"] = 0
+            for col in INSULIN_COLS:
+                if col in df.columns:
+                    df["insulin"] += pd.to_numeric(df[col], errors="coerce").fillna(0)
+
             # Convert datetime safely
             df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
             df = df.dropna(subset=["datetime"])
@@ -50,7 +49,7 @@ if uploaded_file is not None:
 
             # Show data preview
             st.subheader("📋 Uploaded Data")
-            st.dataframe(df.head())
+            st.dataframe(df[["datetime", "blood sugar measurement (mg/dl)", "insulin"]].head())
 
             # Plot Blood Sugar
             st.subheader("📈 Blood Sugar Trend")
@@ -64,7 +63,7 @@ if uploaded_file is not None:
             st.pyplot(fig)
 
             # Plot Insulin
-            st.subheader("💉 Insulin Trend")
+            st.subheader("💉 Insulin Trend (Sum of All Types)")
             fig2, ax2 = plt.subplots()
             ax2.bar(df["datetime"], df["insulin"], color="blue", label="Insulin")
             ax2.set_ylabel("Insulin Units")
