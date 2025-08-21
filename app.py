@@ -1,82 +1,99 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import re
+import os
+from datetime import datetime
 
-# Define insulin-related columns mapping
-INSULIN_COLS = {
-    "insulin injection units (pen)": "Pen",
-    "basal injection units": "Basal",
-    "insulin injection units (pump)": "Pump",
-    "insulin (meal)": "Meal",
-    "insulin (correction)": "Correction"
-}
-
+# --- App title ---
 st.set_page_config(page_title="MySugar Advance", layout="wide")
 st.title("📊 MySugar Advance - Blood Sugar & Insulin Tracker")
 
-uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+# --- File uploader ---
+uploaded_file = st.file_uploader("📂 Upload your CSV file", type=["csv"])
 
-if uploaded_file is not None:
-    try:
-        df = pd.read_csv(uploaded_file)
+if uploaded_file:
+    # Load and clean CSV
+    df = pd.read_csv(uploaded_file)
 
-        # Clean column names
-        df.columns = [re.sub(r"[^a-z0-9 ()/_-]", "", col.lower().strip()) for col in df.columns]
-        st.write("📌 Cleaned columns:", list(df.columns))
+    # Normalize column names
+    df.columns = df.columns.str.strip().str.lower()
 
-        # ✅ Step 1: Merge date + time into datetime
-        if "date" in df.columns and "time" in df.columns:
-            df["datetime"] = pd.to_datetime(df["date"].astype(str) + " " + df["time"].astype(str), errors="coerce")
-        else:
-            st.error("❌ No 'date' + 'time' columns found.")
-            st.stop()
+    # Check required columns
+    if "date" in df.columns and "time" in df.columns:
+        df["datetime"] = pd.to_datetime(df["date"].astype(str) + " " + df["time"].astype(str), errors="coerce")
+    else:
+        st.error("❌ CSV must have both 'date' and 'time' columns")
+        st.stop()
 
-        # ✅ Step 2: Find blood sugar column
-        sugar_candidates = [c for c in df.columns if "blood sugar" in c]
-        if not sugar_candidates:
-            st.error("❌ No 'blood sugar measurement (mg/dl)' column found.")
-            st.stop()
-        sugar_col = sugar_candidates[0]
+    if "blood sugar measurement (mg/dl)" not in df.columns:
+        st.error("❌ CSV missing 'blood sugar measurement (mg/dl)' column")
+        st.stop()
 
-        # ✅ Step 3: Clean dataset
-        df = df.dropna(subset=["datetime"])
-        df = df.sort_values("datetime")
+    # Merge insulin columns into one
+    insulin_cols = [
+        "insulin injection units (pen)",
+        "basal injection units",
+        "insulin injection units (pump)",
+        "insulin (meal)",
+        "insulin (correction)"
+    ]
+    df["insulin"] = df[insulin_cols].fillna(0).sum(axis=1)
 
-        # Convert insulin columns to numeric
-        for col in INSULIN_COLS.keys():
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    # Keep only required
+    df = df[["datetime", "blood sugar measurement (mg/dl)", "insulin"]].dropna()
 
-        st.success("✅ File uploaded and processed successfully!")
+    st.success("✅ File processed successfully!")
 
-        # ✅ Step 4: Data Preview
-        preview_cols = ["datetime", sugar_col] + [col for col in INSULIN_COLS.keys() if col in df.columns]
-        st.subheader("📋 Uploaded Data")
-        st.dataframe(df[preview_cols].head())
+    # --- Compliance Log ---
+    log_file = "compliance_log.csv"
+    if not os.path.exists(log_file):
+        pd.DataFrame(columns=["datetime", "blood_sugar", "insulin", "diet_followed", "diet_notes", "insulin_taken", "insulin_notes"]).to_csv(log_file, index=False)
 
-        # ✅ Step 5: Blood Sugar Trend
-        st.subheader("📈 Blood Sugar Trend")
-        fig, ax = plt.subplots()
-        ax.plot(df["datetime"], df[sugar_col], marker="o", label="Blood Sugar")
-        ax.axhline(70, color="red", linestyle="--", label="Low Threshold (70)")
-        ax.axhline(140, color="green", linestyle="--", label="High Threshold (140)")
-        ax.set_ylabel("Blood Sugar (mg/dL)")
-        ax.set_xlabel("Date/Time")
-        ax.legend()
-        st.pyplot(fig)
+    st.subheader("📝 Daily Compliance Log")
 
-        # ✅ Step 6: Insulin Trends
-        st.subheader("💉 Insulin Trends by Type")
-        for col, label in INSULIN_COLS.items():
-            if col in df.columns:
-                st.markdown(f"**{label} Insulin**")
-                fig2, ax2 = plt.subplots()
-                ax2.bar(df["datetime"], df[col], color="blue", label=f"{label} Insulin")
-                ax2.set_ylabel("Units")
-                ax2.set_xlabel("Date/Time")
-                ax2.legend()
-                st.pyplot(fig2)
+    for i, row in df.iterrows():
+        with st.expander(f"📌 {row['datetime']} | Sugar: {row['blood sugar measurement (mg/dl)']} mg/dL | Insulin: {row['insulin']} units"):
+            diet_followed = st.checkbox(f"✅ Diet followed? (Row {i})", value=True, key=f"diet_{i}")
+            diet_notes = ""
+            if not diet_followed:
+                diet_notes = st.text_input(f"❌ What was eaten instead? (Row {i})", key=f"diet_notes_{i}")
 
-    except Exception as e:
-        st.error(f"❌ Error processing file: {e}")
+            insulin_taken = st.checkbox(f"💉 Insulin taken? (Row {i})", value=True, key=f"insulin_{i}")
+            insulin_notes = ""
+            if not insulin_taken:
+                insulin_notes = st.text_input(f"❌ What was done instead of insulin? (Row {i})", key=f"insulin_notes_{i}")
+
+            if st.button(f"💾 Save Log for Row {i}", key=f"save_{i}"):
+                new_entry = {
+                    "datetime": row["datetime"],
+                    "blood_sugar": row["blood sugar measurement (mg/dl)"],
+                    "insulin": row["insulin"],
+                    "diet_followed": diet_followed,
+                    "diet_notes": diet_notes,
+                    "insulin_taken": insulin_taken,
+                    "insulin_notes": insulin_notes
+                }
+                log_df = pd.read_csv(log_file)
+                log_df = pd.concat([log_df, pd.DataFrame([new_entry])], ignore_index=True)
+                log_df.to_csv(log_file, index=False)
+                st.success(f"✅ Saved compliance log for {row['datetime']}")
+
+    # --- Graphs ---
+    st.subheader("📈 Trends")
+
+    fig1, ax1 = plt.subplots()
+    ax1.plot(df["datetime"], df["blood sugar measurement (mg/dl)"], marker="o", label="Blood Sugar (mg/dL)")
+    ax1.set_xlabel("Date")
+    ax1.set_ylabel("Blood Sugar (mg/dL)")
+    ax1.legend()
+    st.pyplot(fig1)
+
+    fig2, ax2 = plt.subplots()
+    ax2.plot(df["datetime"], df["insulin"], marker="s", color="orange", label="Insulin (units)")
+    ax2.set_xlabel("Date")
+    ax2.set_ylabel("Insulin (units)")
+    ax2.legend()
+    st.pyplot(fig2)
+
+else:
+    st.info("⬆️ Please upload a CSV file to get started.")
