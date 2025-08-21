@@ -2,14 +2,14 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# List of possible insulin-related columns
-INSULIN_COLS = [
-    "insulin injection units (pen)",
-    "basal injection units",
-    "insulin injection units (pump)",
-    "insulin (meal)",
-    "insulin (correction)"
-]
+# Define insulin-related columns
+INSULIN_COLS = {
+    "insulin injection units (pen)": "Pen",
+    "basal injection units": "Basal",
+    "insulin injection units (pump)": "Pump",
+    "insulin (meal)": "Meal",
+    "insulin (correction)": "Correction"
+}
 
 st.set_page_config(page_title="MySugar Advance", layout="wide")
 
@@ -21,37 +21,43 @@ if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
 
-        # Normalize column names (lowercase for matching)
+        # Normalize column names (lowercase, strip spaces)
         df.columns = [col.strip().lower() for col in df.columns]
 
-        # Fix duplicate datetime column issue (take first one)
-        if df.columns.duplicated().any():
-            df = df.loc[:, ~df.columns.duplicated()]
+        # If there are duplicate datetime columns, keep the first one
+        if "datetime" in df.columns:
+            datetime_cols = [c for c in df.columns if c == "datetime"]
+            if len(datetime_cols) > 1:
+                # rename extra ones
+                for i, col in enumerate(datetime_cols[1:], start=2):
+                    df.rename(columns={col: f"datetime_{i}"}, inplace=True)
 
-        # Ensure datetime column
+        # Check mandatory columns
         if "datetime" not in df.columns:
-            st.error("❌ No 'datetime' column found.")
+            st.error("❌ No 'datetime' column found in file after cleaning.")
         elif "blood sugar measurement (mg/dl)" not in df.columns:
             st.error("❌ No 'blood sugar measurement (mg/dl)' column found.")
         else:
-            # Combine all insulin columns into one
-            df["insulin"] = 0
-            for col in INSULIN_COLS:
-                if col in df.columns:
-                    df["insulin"] += pd.to_numeric(df[col], errors="coerce").fillna(0)
-
             # Convert datetime safely
             df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
             df = df.dropna(subset=["datetime"])
             df = df.sort_values("datetime")
 
+            # Ensure insulin columns are numeric
+            for col in INSULIN_COLS.keys():
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
             st.success("✅ File uploaded and processed successfully!")
 
-            # Show data preview
+            # Show Data Preview
+            preview_cols = ["datetime", "blood sugar measurement (mg/dl)"] + [
+                col for col in INSULIN_COLS.keys() if col in df.columns
+            ]
             st.subheader("📋 Uploaded Data")
-            st.dataframe(df[["datetime", "blood sugar measurement (mg/dl)", "insulin"]].head())
+            st.dataframe(df[preview_cols].head())
 
-            # Plot Blood Sugar
+            # Blood Sugar Trend
             st.subheader("📈 Blood Sugar Trend")
             fig, ax = plt.subplots()
             ax.plot(df["datetime"], df["blood sugar measurement (mg/dl)"], marker="o", label="Blood Sugar")
@@ -62,14 +68,17 @@ if uploaded_file is not None:
             ax.legend()
             st.pyplot(fig)
 
-            # Plot Insulin
-            st.subheader("💉 Insulin Trend (Sum of All Types)")
-            fig2, ax2 = plt.subplots()
-            ax2.bar(df["datetime"], df["insulin"], color="blue", label="Insulin")
-            ax2.set_ylabel("Insulin Units")
-            ax2.set_xlabel("Date/Time")
-            ax2.legend()
-            st.pyplot(fig2)
+            # Insulin Trends - Separated by Type
+            st.subheader("💉 Insulin Trends by Type")
+            for col, label in INSULIN_COLS.items():
+                if col in df.columns:
+                    st.markdown(f"**{label} Insulin**")
+                    fig2, ax2 = plt.subplots()
+                    ax2.bar(df["datetime"], df[col], color="blue", label=f"{label} Insulin")
+                    ax2.set_ylabel("Units")
+                    ax2.set_xlabel("Date/Time")
+                    ax2.legend()
+                    st.pyplot(fig2)
 
     except Exception as e:
         st.error(f"❌ Error processing file: {e}")
