@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import re
 
-# Define insulin-related columns
+# Define insulin-related columns mapping
 INSULIN_COLS = {
     "insulin injection units (pen)": "Pen",
     "basal injection units": "Basal",
@@ -25,39 +25,37 @@ if uploaded_file is not None:
         df.columns = [re.sub(r"[^a-z0-9 ()/_-]", "", col.lower().strip()) for col in df.columns]
         st.write("📌 Cleaned columns:", list(df.columns))
 
-        # If we have date + time, combine into datetime
+        # ✅ Step 1: Merge date + time into datetime
         if "date" in df.columns and "time" in df.columns:
             df["datetime"] = pd.to_datetime(df["date"].astype(str) + " " + df["time"].astype(str), errors="coerce")
-        elif "datetime" in df.columns:
-            df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
         else:
-            st.error("❌ No 'date' + 'time' or 'datetime' column found.")
+            st.error("❌ No 'date' + 'time' columns found.")
             st.stop()
 
-        # Blood sugar column
+        # ✅ Step 2: Find blood sugar column
         sugar_candidates = [c for c in df.columns if "blood sugar" in c]
         if not sugar_candidates:
             st.error("❌ No 'blood sugar measurement (mg/dl)' column found.")
             st.stop()
         sugar_col = sugar_candidates[0]
 
-        # Drop rows without datetime
+        # ✅ Step 3: Clean dataset
         df = df.dropna(subset=["datetime"])
         df = df.sort_values("datetime")
 
-        # Ensure insulin columns are numeric
+        # Convert insulin columns to numeric
         for col in INSULIN_COLS.keys():
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
         st.success("✅ File uploaded and processed successfully!")
 
-        # Show Data Preview
+        # ✅ Step 4: Data Preview
         preview_cols = ["datetime", sugar_col] + [col for col in INSULIN_COLS.keys() if col in df.columns]
         st.subheader("📋 Uploaded Data")
         st.dataframe(df[preview_cols].head())
 
-        # Blood Sugar Trend
+        # ✅ Step 5: Blood Sugar Trend
         st.subheader("📈 Blood Sugar Trend")
         fig, ax = plt.subplots()
         ax.plot(df["datetime"], df[sugar_col], marker="o", label="Blood Sugar")
@@ -68,7 +66,7 @@ if uploaded_file is not None:
         ax.legend()
         st.pyplot(fig)
 
-        # Insulin Trends
+        # ✅ Step 6: Insulin Trends
         st.subheader("💉 Insulin Trends by Type")
         for col, label in INSULIN_COLS.items():
             if col in df.columns:
