@@ -19,35 +19,35 @@ st.markdown("""
 <style>
     .main-header {
         font-size: 3rem;
-        color: #2E86AB;
+        color: #db8ab1;
         text-align: center;
         margin-bottom: 2rem;
         font-weight: bold;
     }
     .section-header {
         font-size: 1.8rem;
-        color: #A23B72;
+        color: #df80ff;
         margin-top: 2rem;
         margin-bottom: 1rem;
         border-bottom: 2px solid #A23B72;
         padding-bottom: 0.5rem;
     }
     .info-box {
-        background-color: #E8F4FD;
+        background-color: #ff66d9;
         padding: 1rem;
         border-radius: 10px;
         border-left: 5px solid #2E86AB;
         margin: 1rem 0;
     }
     .warning-box {
-        background-color: #FFF3CD;
+        background-color: #b3ff66;
         padding: 1rem;
         border-radius: 10px;
         border-left: 5px solid #FF6B35;
         margin: 1rem 0;
     }
     .success-box {
-        background-color: #D4EDDA;
+        background-color: #66ffff;
         padding: 1rem;
         border-radius: 10px;
         border-left: 5px solid #28A745;
